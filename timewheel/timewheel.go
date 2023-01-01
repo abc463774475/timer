@@ -28,6 +28,35 @@ type Item struct {
 	element *list.Element
 	// Items
 	Items *Items
+	// tw
+	tw *TimeWheel
+}
+
+// GetCallback gets the callback function of the item.
+func (it *Item) GetCallback() func() {
+	return it.callback
+}
+
+// Reset
+func (it *Item) ResetDuration(duration time.Duration, times int) {
+	if it.Items != nil {
+		it.Items.tw.l.Lock()
+		defer it.Items.tw.l.Unlock()
+
+		it.Items.tw.remove(it)
+		it.delay = duration
+		it.counts = times
+		it.Items.tw.add(it, true)
+	} else {
+		it.delay = duration
+		it.counts = times
+
+		it.tw.l.Lock()
+		defer it.tw.l.Unlock()
+
+		it.tw.remove(it)
+		it.tw.add(it, true)
+	}
 }
 
 type Items struct {
@@ -47,17 +76,12 @@ func NewItems(tw *TimeWheel, itemFunc func(item *Item)) *Items {
 	}
 }
 
-// GetCallback gets the callback function of the item.
-func (tw *Item) GetCallback() func() {
-	return tw.callback
-}
-
 // Add
 func (items *Items) Add(delay time.Duration, counts int, callback func()) *Item {
 	item := items.tw.Add(delay, counts, callback, items)
 	items.l.Lock()
 	items.Items[item.id] = item
-	nlog.Info("Add item %v", item.id)
+	//nlog.Info("Add item %v", item.id)
 	items.l.Unlock()
 
 	return item
@@ -146,13 +170,14 @@ func (tw *TimeWheel) Add(delay time.Duration,
 		callback: callback,
 		counts:   counts,
 		Items:    items,
+		tw:       tw,
 	}
 
 	tw.l.Lock()
 	tw.items[item.id] = item
 	tw.add(item, true)
 
-	nlog.Erro("Add item %v", item.id)
+	//nlog.Erro("Add item %v", item.id)
 	tw.l.Unlock()
 
 	return item

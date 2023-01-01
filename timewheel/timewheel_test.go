@@ -54,7 +54,7 @@ func TestTimeWheel2(t *testing.T) {
 		nlog.Info("3 %v", time.Now())
 	})
 
-	ts.Add(3*time.Second, 3, func() {
+	t1 := ts.Add(3*time.Second, 3, func() {
 		nlog.Debug("1 %v", time.Now())
 	})
 
@@ -62,9 +62,7 @@ func TestTimeWheel2(t *testing.T) {
 	nlog.Info("clear")
 	ts.Clear()
 
-	tw.Add(4*time.Second, 5, func() {
-		nlog.Erro("2 %v", time.Now())
-	}, nil)
+	t1.ResetDuration(1*time.Second, 2)
 
 	time.Sleep(400 * time.Second)
 }
