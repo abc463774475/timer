@@ -26,6 +26,67 @@ type Item struct {
 	slot int
 	// element
 	element *list.Element
+	// Items
+	Items *Items
+}
+
+type Items struct {
+	Items    map[int64]*Item
+	itemFunc func(item *Item)
+
+	tw *TimeWheel
+	l  sync.RWMutex
+}
+
+// NewItems
+func NewItems(tw *TimeWheel, itemFunc func(item *Item)) *Items {
+	return &Items{
+		Items:    make(map[int64]*Item),
+		itemFunc: itemFunc,
+		tw:       tw,
+	}
+}
+
+// GetCallback gets the callback function of the item.
+func (tw *Item) GetCallback() func() {
+	return tw.callback
+}
+
+// Add
+func (items *Items) Add(delay time.Duration, counts int, callback func()) *Item {
+	item := items.tw.Add(delay, counts, callback, items)
+	items.l.Lock()
+	items.Items[item.id] = item
+	nlog.Info("Add item %v", item.id)
+	items.l.Unlock()
+
+	return item
+}
+
+// Remove
+func (items *Items) Remove(id int64) {
+	items.l.Lock()
+	defer items.l.Unlock()
+
+	item, ok := items.Items[id]
+	if !ok {
+		return
+	}
+
+	items.tw.Remove(item.id)
+	delete(items.Items, item.id)
+}
+
+// Clear clears the Items
+func (i *Items) Clear() {
+	i.l.Lock()
+	defer i.l.Unlock()
+
+	for _, item := range i.Items {
+		i.tw.Remove(item.id)
+	}
+
+	i.Items = make(map[int64]*Item)
 }
 
 type TimeWheel struct {
@@ -70,7 +131,9 @@ func (tw *TimeWheel) Start() {
 }
 
 // Add adds a new item to the TimeWheel.
-func (tw *TimeWheel) Add(delay time.Duration, counts int, callback func()) *Item {
+func (tw *TimeWheel) Add(delay time.Duration,
+	counts int, callback func(), items *Items,
+) *Item {
 	if counts < 0 {
 		counts = -1
 	} else if counts == 0 {
@@ -82,12 +145,14 @@ func (tw *TimeWheel) Add(delay time.Duration, counts int, callback func()) *Item
 		delay:    delay,
 		callback: callback,
 		counts:   counts,
+		Items:    items,
 	}
 
 	tw.l.Lock()
 	tw.items[item.id] = item
 	tw.add(item, true)
 
+	nlog.Erro("Add item %v", item.id)
 	tw.l.Unlock()
 
 	return item
@@ -120,6 +185,10 @@ func (tw *TimeWheel) add(item *Item, isNextSlot bool) {
 	}
 
 	item.element = tw.slots[slot].PushBack(item)
+
+	if _, ok := tw.items[item.id]; !ok {
+		tw.items[item.id] = item
+	}
 }
 
 // Remove removes an item from the TimeWheel.
@@ -129,6 +198,7 @@ func (tw *TimeWheel) Remove(id int64) {
 
 	item, ok := tw.items[id]
 	if !ok {
+		nlog.Debug("Remove item not found %v", id)
 		return
 	}
 
@@ -156,16 +226,16 @@ func (tw *TimeWheel) Stop() {
 }
 
 // Reset resets the TimeWheel.
-func (tw *TimeWheel) Reset(id int64, duration time.Duration) {
-	tw.l.Lock()
-	defer tw.l.Unlock()
-
-	item, ok := tw.items[id]
-	if !ok {
-		return
-	}
-
-	item.delay = duration
-	tw.remove(item)
-	tw.add(item, false)
-}
+//func (tw *TimeWheel) Reset(id int64, duration time.Duration) {
+//	tw.l.Lock()
+//	defer tw.l.Unlock()
+//
+//	item, ok := tw.items[id]
+//	if !ok {
+//		return
+//	}
+//
+//	item.delay = duration
+//	tw.remove(item)
+//	tw.add(item, false)
+//}

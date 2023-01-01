@@ -28,7 +28,17 @@ func (tw *TimeWheel) advance() {
 
 		// nlog.Debug("item.id  %v item.round:%d  cur slots %v", item.id, item.round, tw.currentSlot)
 		if item.round <= 0 {
-			item.callback()
+			// 无解，多携程的东西！不是我想要的！战斗系统不能这么写！
+			// item.callback()
+
+			// 如果item的上层控制不为nil，则交给上层处理
+			if item.Items != nil {
+				item.Items.itemFunc(item)
+				// item.callback()
+			} else {
+				go item.callback()
+			}
+
 			if item.counts == 0 {
 			} else if item.counts <= -1 {
 				addItems = append(addItems, item)
