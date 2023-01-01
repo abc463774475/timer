@@ -154,3 +154,18 @@ func (tw *TimeWheel) Stop() {
 
 	tw.items = make(map[int64]*Item)
 }
+
+// Reset resets the TimeWheel.
+func (tw *TimeWheel) Reset(id int64, duration time.Duration) {
+	tw.l.Lock()
+	defer tw.l.Unlock()
+
+	item, ok := tw.items[id]
+	if !ok {
+		return
+	}
+
+	item.delay = duration
+	tw.remove(item)
+	tw.add(item, false)
+}
