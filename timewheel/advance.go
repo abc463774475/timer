@@ -1,6 +1,7 @@
 package timewheel
 
-// advance advances the TimeWheel by one tick.
+// advance advances the TimeWheel by one tick..
+// todo 应该用上次的时间差来计算，而不是用固定的时间间隔。暂时不会出太大的问题，但是如果时间间隔很大，就会出问题了。后面再改
 func (tw *TimeWheel) advance() {
 	tw.l.Lock()
 	defer tw.l.Unlock()
