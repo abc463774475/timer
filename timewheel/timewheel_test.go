@@ -34,3 +34,22 @@ func TestTimeWheel(t *testing.T) {
 
 	time.Sleep(20000 * time.Second)
 }
+
+// TestTimeWheel2 is a test function
+func TestTimeWheel2(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+
+	nlog.InitLog(nlog.WithCompressType(nlog.Quick))
+	nlog.Info("start %v", time.Now())
+	tw := NewTimeWheel(1*time.Second, 50)
+
+	tw.Start()
+
+	// time.Sleep(time.Duration(rand.Int63n(1000)) * time.Millisecond)
+	nlog.Debug("current time %v", time.Now())
+	tw.Add(1*time.Second, 100, func() {
+		nlog.Debug("1 %v", time.Now())
+	})
+
+	time.Sleep(400 * time.Second)
+}

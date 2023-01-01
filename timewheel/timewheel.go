@@ -87,8 +87,6 @@ func (tw *TimeWheel) advance() {
 		return
 	}
 
-	tw.currentSlot++
-
 	addItems := []*Item{}
 	removeItems := []*Item{}
 	// 遍历槽位
@@ -96,8 +94,8 @@ func (tw *TimeWheel) advance() {
 		item := e.Value.(*Item)
 		item.round--
 
-		// nlog.Info("item.id  %v item.round:%d", item.id, item.round)
-		if item.round == 0 {
+		// nlog.Debug("item.id  %v item.round:%d  cur slots %v", item.id, item.round, tw.currentSlot)
+		if item.round <= 0 {
 			item.callback()
 			if item.counts == 0 {
 			} else if item.counts <= -1 {
@@ -117,8 +115,10 @@ func (tw *TimeWheel) advance() {
 	}
 
 	for _, item := range addItems {
-		tw.add(item)
+		tw.add(item, false)
 	}
+
+	tw.currentSlot++
 }
 
 // Add adds a new item to the TimeWheel.
@@ -138,7 +138,7 @@ func (tw *TimeWheel) Add(delay time.Duration, counts int, callback func()) *Item
 
 	tw.l.Lock()
 	tw.items[item.id] = item
-	tw.add(item)
+	tw.add(item, true)
 
 	tw.l.Unlock()
 
@@ -146,14 +146,23 @@ func (tw *TimeWheel) Add(delay time.Duration, counts int, callback func()) *Item
 }
 
 // add adds an item to the TimeWheel.
-func (tw *TimeWheel) add(item *Item) {
+func (tw *TimeWheel) add(item *Item, isNextSlot bool) {
 	// 计算延迟时间
-	round := int(item.delay/(time.Duration(tw.slotsNum)*tw.interval)) + 1
+	round := int(item.delay / (time.Duration(tw.slotsNum) * tw.interval))
 
+	nextSlot := tw.currentSlot
+	if isNextSlot {
+		nextSlot--
+	}
 	// 计算槽位
-	slot := (tw.currentSlot + int(item.delay/tw.interval)) % tw.slotsNum
+	slot := (nextSlot + int(item.delay/tw.interval)) % tw.slotsNum
 
-	// nlog.Erro("round:%d,slot:%d curslots %v", round, slot, tw.currentSlot)
+	if slot < 0 {
+		// 按常理来说，这里不会出现小于0的情况，但是为了防止出现bug，这里做了处理
+		panic("slot < 0")
+	}
+
+	// nlog.Erro("round:%d,slot:%d curslots %v", round, slot, nextSlot)
 
 	item.round = round
 	item.slot = slot
