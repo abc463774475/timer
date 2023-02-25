@@ -66,3 +66,22 @@ func TestTimeWheel2(t *testing.T) {
 
 	time.Sleep(400 * time.Second)
 }
+
+// TestTimeWheel3 is a test function
+func TestTimeWheel3(t *testing.T) {
+	nlog.InitLog(nlog.WithCompressType(nlog.Quick))
+	nlog.Info("start %v", time.Now())
+	tw := NewTimeWheel(1*time.Second, 100)
+
+	tw.Start()
+
+	// time.Sleep(250 * time.Millisecond)
+
+	startTime := time.Now()
+
+	tw.Add(5*time.Second, -1, func() {
+		nlog.Erro("%v", time.Now().Sub(startTime))
+	}, nil)
+
+	time.Sleep(100 * time.Second)
+}
