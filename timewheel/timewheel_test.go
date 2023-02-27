@@ -75,11 +75,11 @@ func TestTimeWheel3(t *testing.T) {
 
 	tw.Start()
 
-	// time.Sleep(250 * time.Millisecond)
+	// time.Sleep(269 * time.Millisecond)
 
 	startTime := time.Now()
 
-	tw.Add(5*time.Second, -1, func() {
+	tw.Add(3*time.Second, 10, func() {
 		nlog.Erro("%v", time.Now().Sub(startTime))
 	}, nil)
 

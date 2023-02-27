@@ -18,8 +18,10 @@ type Item struct {
 	delay time.Duration
 	// 回调函数
 	callback func()
-	// counts -1 无限循环 0 一次 1 两次 2 三次
-	counts int
+	// totalCounts -1 无限循环 0 一次 1 两次 2 三次
+	totalCounts int
+	// currentCounts
+	currentCounts int
 	// round , 第几轮
 	// round int
 	// slot , 第几个槽
@@ -32,6 +34,8 @@ type Item struct {
 	tw *TimeWheel
 	// frame
 	frame int
+	// createTime
+	createTime time.Time
 }
 
 // GetCallback gets the callback function of the item.
@@ -47,11 +51,11 @@ func (it *Item) ResetDuration(duration time.Duration, times int) {
 
 		it.Items.tw.remove(it)
 		it.delay = duration
-		it.counts = times
+		it.totalCounts = times
 		it.Items.tw.add(it)
 	} else {
 		it.delay = duration
-		it.counts = times
+		it.totalCounts = times
 
 		it.tw.l.Lock()
 		defer it.tw.l.Unlock()
@@ -128,6 +132,9 @@ type TimeWheel struct {
 	currentSlot int
 	// allSlots
 	allSlots int
+	// startTime
+	startTime time.Time
+	once      sync.Once
 
 	l sync.Mutex
 
@@ -148,22 +155,21 @@ type TimeWheel struct {
 
 // Start starts the TimeWheel.
 func (tw *TimeWheel) Start() {
+	tw.startTime = time.Now()
+
 	go func() {
 		defer func() {
 			nlog.Info("TimeWheel Stop")
 		}()
-
-		startTime := time.Now()
 
 		frame := 0
 		for {
 			select {
 			case <-tw.ticker.C:
 				curTime := time.Now()
-				subTime := curTime.Sub(startTime)
+				subTime := curTime.Sub(tw.startTime)
 				curFrame := int(subTime / tw.interval)
 				if curFrame > 0 && curFrame > frame {
-					// nlog.Info("curFrame %v frame %v", curFrame, frame)
 					for i := 0; i < curFrame-frame; i++ {
 						tw.advance()
 						frame++
@@ -189,12 +195,13 @@ func (tw *TimeWheel) Add(delay time.Duration,
 	}
 
 	item := &Item{
-		id:       atomic.AddInt64(&timerIndex, 1),
-		delay:    delay,
-		callback: callback,
-		counts:   counts,
-		Items:    items,
-		tw:       tw,
+		id:          atomic.AddInt64(&timerIndex, 1),
+		delay:       delay,
+		callback:    callback,
+		totalCounts: counts,
+		Items:       items,
+		tw:          tw,
+		createTime:  time.Now(),
 	}
 
 	tw.l.Lock()
@@ -209,26 +216,27 @@ func (tw *TimeWheel) Add(delay time.Duration,
 
 // add adds an item to the TimeWheel.
 func (tw *TimeWheel) add(item *Item) {
-	// 计算延迟时间
-	//round := int(item.delay / (time.Duration(tw.slotsNum) * tw.interval))
+	// todo 后面如果轮训量还是太大，可以考虑分层查看，，
+	// 比如 slot =0 的 有 1层 2层 3层 等，每次只轮训当前层，已有层全部舍掉
+
+	nextTime := item.createTime.Add(time.Duration(item.currentCounts+1) * item.delay)
+	sub := nextTime.Sub(tw.startTime)
+	needFrame := int(sub / tw.interval)
+
+	//nextTime := item.createTime.UnixNano() + int64((item.currentCounts+1)*int(item.delay))
+	//sub := nextTime - tw.startTime.UnixNano()
+	//needFrame := int(sub / tw.interval.Nanoseconds())
 	//
-	//nextSlot := tw.currentSlot
-	// 计算槽位
-	//slot := (nextSlot + int(item.delay/tw.interval)) % tw.slotsNum
-	//
-	//if slot < 0 {
-	//	// 按常理来说，这里不会出现小于0的情况，但是为了防止出现bug，这里做了处理
-	//	panic("slot < 0")
-	//}
-	//r := int(item.delay / (time.Duration(tw.slotsNum) * tw.interval))
-	//
-	needFrame := int(item.delay/tw.interval) + tw.frame
+	//nlog.Erro("add item nexttime %v sub %v  needFrame %v", nextTime, sub, needFrame)
+	//nlog.Erro("starttime %v  %v", tw.startTime.UnixNano(), tw.startTime.UnixNano())
+	// needFrame := int(item.delay/tw.interval) + tw.frame
+
 	item.frame = needFrame
 	slot := needFrame % tw.slotsNum
 	// item.round = round
 	item.slot = slot
 
-	nlog.Info("add item %v  slot %v", item.id, slot)
+	// nlog.Info("add item %v  slot %v", item.id, slot)
 
 	if tw.slots[slot] == nil {
 		tw.slots[slot] = list.New()

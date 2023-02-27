@@ -19,25 +19,21 @@ func (tw *TimeWheel) advance() {
 	// 遍历槽位
 	for e := slots.Front(); e != nil; e = e.Next() {
 		item := e.Value.(*Item)
-		// tFrame := item.round*tw.slotsNum + tw.currentSlot
-		// item.round--
 
-		// nlog.Debug("item.id  %v item.round:%d  cur slots %v", item.id, item.round, tw.currentSlot)
 		if tw.frame == item.frame {
 			// 如果item的上层控制不为nil，则交给上层处理
 			if item.Items != nil {
 				item.Items.itemFunc(item)
-				// item.callback()
 			} else {
 				go item.callback()
 			}
 
-			if item.counts == 0 {
-			} else if item.counts <= -1 {
+			if item.totalCounts == 0 {
+			} else if item.totalCounts <= -1 {
 				tw.addItems = append(tw.addItems, item)
 			} else {
-				item.counts--
-				if item.counts > 0 {
+				item.totalCounts--
+				if item.totalCounts > 0 {
 					tw.addItems = append(tw.addItems, item)
 				}
 			}
@@ -53,6 +49,7 @@ func (tw *TimeWheel) advanceAfter() {
 	}
 
 	for _, item := range tw.addItems {
+		item.currentCounts++
 		tw.add(item)
 	}
 
