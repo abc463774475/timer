@@ -35,7 +35,7 @@ type Item struct {
 	// frame
 	frame int
 	// createTime
-	createTime time.Time
+	createTime int64
 }
 
 // GetCallback gets the callback function of the item.
@@ -43,26 +43,36 @@ func (it *Item) GetCallback() func() {
 	return it.callback
 }
 
-// Reset
-func (it *Item) ResetDuration(duration time.Duration, times int) {
-	if it.Items != nil {
-		it.Items.tw.l.Lock()
-		defer it.Items.tw.l.Unlock()
-
-		it.Items.tw.remove(it)
-		it.delay = duration
-		it.totalCounts = times
-		it.Items.tw.add(it)
-	} else {
-		it.delay = duration
-		it.totalCounts = times
-
-		it.tw.l.Lock()
-		defer it.tw.l.Unlock()
-
-		it.tw.remove(it)
-		it.tw.add(it)
+// ResetDuration
+// 本来不想给这个函数的，可能会导致时间轮的混乱，但是我想到了一个办法，就是在重置的时候，先把这个item从时间轮中删除，然后再重新添加到时间轮中
+// 这样就可以保证时间轮的正确性
+// 现在限定这个函数的功能
+// 返回值为true，表示重置成功, false 表示重置失败, 重置失败的原因是，这个item已经被删除了 这个返回值很重要
+// 成功调用之后 , 尤其是reset 函数，，所以 必须判定 是否存在，这个item的延迟时间会被重置为duration，这个item的执行次数会被重置为times。但是开始时间会以当前时间为准
+// 还是慎用这个函数吧，最好应用层自己删除+添加，因为这个函数会导致时间轮的混乱
+// 多携程的时候，这个函数会有问题
+func (it *Item) ResetDuration(duration time.Duration, times int) (*Item, bool) {
+	it.tw.l.Lock()
+	if _, ok := it.tw.items[it.id]; !ok {
+		it.tw.l.Unlock()
+		nlog.Erro("ResetDuration failed, item has been deleted, id %v", it.id)
+		return nil, false
 	}
+	it.tw.remove(it)
+	it.tw.l.Unlock()
+	return it.tw.Add(duration, times, it.callback, it.Items), true
+}
+
+// Stop
+func (it *Item) Stop() {
+	it.tw.l.Lock()
+	defer it.tw.l.Unlock()
+
+	if _, ok := it.tw.items[it.id]; !ok {
+		return
+	}
+
+	it.tw.remove(it)
 }
 
 type Items struct {
@@ -87,7 +97,6 @@ func (items *Items) Add(delay time.Duration, counts int, callback func()) *Item 
 	item := items.tw.Add(delay, counts, callback, items)
 	items.l.Lock()
 	items.Items[item.id] = item
-	// nlog.Info("Add item %v", item.id)
 	items.l.Unlock()
 
 	return item
@@ -144,11 +153,6 @@ type TimeWheel struct {
 
 	quitChan chan struct{}
 
-	// addItems
-	addItems []*Item
-	// removeItems
-	removeItems []*Item
-
 	// frame
 	frame int
 }
@@ -174,8 +178,6 @@ func (tw *TimeWheel) Start() {
 						tw.advance()
 						frame++
 					}
-
-					tw.advanceAfter()
 				}
 			case <-tw.quitChan:
 				return
@@ -201,16 +203,10 @@ func (tw *TimeWheel) Add(delay time.Duration,
 		totalCounts: counts,
 		Items:       items,
 		tw:          tw,
-		createTime:  time.Now(),
+		createTime:  time.Now().UnixNano(),
 	}
 
-	tw.l.Lock()
-	tw.items[item.id] = item
 	tw.add(item)
-
-	// nlog.Erro("Add item %v", item.id)
-	tw.l.Unlock()
-
 	return item
 }
 
@@ -218,25 +214,14 @@ func (tw *TimeWheel) Add(delay time.Duration,
 func (tw *TimeWheel) add(item *Item) {
 	// todo 后面如果轮训量还是太大，可以考虑分层查看，，
 	// 比如 slot =0 的 有 1层 2层 3层 等，每次只轮训当前层，已有层全部舍掉
+	nextTime := item.createTime + ((int64(item.currentCounts) + 1) * item.delay.Nanoseconds())
+	sub := nextTime - tw.startTime.UnixNano()
 
-	nextTime := item.createTime.Add(time.Duration(item.currentCounts+1) * item.delay)
-	sub := nextTime.Sub(tw.startTime)
-	needFrame := int(sub / tw.interval)
-
-	//nextTime := item.createTime.UnixNano() + int64((item.currentCounts+1)*int(item.delay))
-	//sub := nextTime - tw.startTime.UnixNano()
-	//needFrame := int(sub / tw.interval.Nanoseconds())
-	//
-	//nlog.Erro("add item nexttime %v sub %v  needFrame %v", nextTime, sub, needFrame)
-	//nlog.Erro("starttime %v  %v", tw.startTime.UnixNano(), tw.startTime.UnixNano())
-	// needFrame := int(item.delay/tw.interval) + tw.frame
+	needFrame := int(sub / int64(tw.interval))
 
 	item.frame = needFrame
 	slot := needFrame % tw.slotsNum
-	// item.round = round
 	item.slot = slot
-
-	// nlog.Info("add item %v  slot %v", item.id, slot)
 
 	if tw.slots[slot] == nil {
 		tw.slots[slot] = list.New()
@@ -250,6 +235,7 @@ func (tw *TimeWheel) add(item *Item) {
 }
 
 // Remove removes an item from the TimeWheel.
+// 这是错的，，callback 里面调用的时候，会导致死锁
 func (tw *TimeWheel) Remove(id int64) {
 	tw.l.Lock()
 	defer tw.l.Unlock()
@@ -265,8 +251,13 @@ func (tw *TimeWheel) Remove(id int64) {
 
 // remove removes an item from the TimeWheel.
 func (tw *TimeWheel) remove(item *Item) {
+	if item.element == nil {
+		return
+	}
+
 	tw.slots[item.slot].Remove(item.element)
 	delete(tw.items, item.id)
+	item.element = nil
 }
 
 // Stop stops the TimeWheel.
@@ -282,18 +273,3 @@ func (tw *TimeWheel) Stop() {
 
 	tw.items = make(map[int64]*Item)
 }
-
-// Reset resets the TimeWheel.
-//func (tw *TimeWheel) Reset(id int64, duration time.Duration) {
-//	tw.l.Lock()
-//	defer tw.l.Unlock()
-//
-//	item, ok := tw.items[id]
-//	if !ok {
-//		return
-//	}
-//
-//	item.delay = duration
-//	tw.remove(item)
-//	tw.add(item, false)
-//}

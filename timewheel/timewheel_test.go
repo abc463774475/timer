@@ -79,9 +79,30 @@ func TestTimeWheel3(t *testing.T) {
 
 	startTime := time.Now()
 
-	tw.Add(3*time.Second, 10, func() {
+	count := 0
+	var it *Item
+	it = tw.Add(3*time.Second, 3, func() {
 		nlog.Erro("%v", time.Now().Sub(startTime))
+		count++
+		if count > 1 {
+			it.Stop()
+			//_, bret := it.ResetDuration(10*time.Second, 5)
+			//nlog.Erro("reset %v", bret)
+		}
 	}, nil)
 
+	time.Sleep(100 * time.Second)
+}
+
+// TestTimeWheel4 is a test function
+func TestTimeWheel4(t *testing.T) {
+	nlog.Info("start %v", time.Now())
+	t2 := time.AfterFunc(5*time.Second, func() {
+		nlog.Info("t2 %v", time.Now())
+	})
+
+	time.Sleep(5 * time.Second)
+	ret := t2.Reset(2 * time.Second)
+	nlog.Info("finish %v %v", time.Now(), ret)
 	time.Sleep(100 * time.Second)
 }
